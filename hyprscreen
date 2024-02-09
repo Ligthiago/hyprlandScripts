@@ -201,7 +201,8 @@ take_screenshot_simple(){
 
 # Take screenshot with postprocessing, such as paddings and shadow
 take_screenshot_fancy(){
-  local tempDir=$(mktemp -d) 
+  local tempDir
+  tempDir=$(mktemp -d) 
   local temp=$tempDir/temp.png
   local mask=$tempDir/mask.png
 
@@ -214,7 +215,7 @@ take_screenshot_fancy(){
   br=$(jq -n "$radius"*"$scale")
   grim -g "${posX},${posY} ${width}x${height}" "$temp"
 
-  convert -size "$w"x"$h" xc:none -draw "roundrectangle 0,0,$(($w-$bs)),$(($h-$bs)), ${br},${br}" "$mask"
+  convert -size "$w"x"$h" xc:none -draw "roundrectangle 0,0,$((w-bs)),$((h-bs)), ${br},${br}" "$mask"
   convert "$temp" -matte "$mask" -compose DstIn -composite "$temp"
   rm "$mask"
   convert "$temp" \( +clone -background black -shadow "70x20+0+20" \) +swap -background "$background" -layers merge +repage "$temp"
@@ -242,14 +243,16 @@ take_screenshot_fancy(){
 
 # Take screenshot of all workspaces, except excluded and compose in single picture 
 take_screenshot_panorama(){
-  local temp=$(mktemp -d)
+  local temp
+  local workspaces
+  temp=$(mktemp -d)
   local result=$temp/result.png
   local nonExcluded=()
-  local workspaces=($(hyprctl workspaces -j | jq -r '.[].id'))
+  mapfile -t workspaces < <(hyprctl workspaces -j | jq -r '.[].id')
   output=
 
   for id in "${workspaces[@]}"; do
-    if [[ ! " ${exclude[*]} " =~ " $id " ]]; then
+    if [[ ! " ${exclude[*]} " =~ $id ]]; then
       hyprctl dispatch workspace "$id"
       output="$(hyprctl workspaces -j | jq -r --argjson id "$id" '.[] | select(.id == $id) | .monitor')"
       sleep 0.5
@@ -312,8 +315,10 @@ check_dependencies(){
 set_animations(){
   case $1 in
     unset)
-      local fade="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fade") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
-      local fadeout="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fadeOut") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
+      local fade
+      local fadeout
+      fade="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fade") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
+      fadeout="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fadeOut") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
       hyprctl keyword animation 'fade,0,1,default' >/dev/null
       hyprctl keyword animation 'fadeOut,0,1,default' >/dev/null
     ;;
@@ -340,9 +345,10 @@ get_geometry(){
       selectedGeometry=$(slurp -o)
     ;;
     interactive)
-      local activeWorkspace="$(hyprctl monitors -j | jq -r 'map(.activeWorkspace.id)')"
-      local windowsOnWorkspace="$(hyprctl clients -j | jq -r --argjson workspace "$activeWorkspace" 'map(select([.workspace.id] | inside($workspace)))')"
-      # local windowsGeometry=$(echo "$windowsOnWorkspace" | jq -r '.[] | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+      local activeWorkspace
+      local windowsOnWorkspace
+      activeWorkspace="$(hyprctl monitors -j | jq -r 'map(.activeWorkspace.id)')"
+      windowsOnWorkspace="$(hyprctl clients -j | jq -r --argjson workspace "$activeWorkspace" 'map(select([.workspace.id] | inside($workspace)))')"
       selectedGeometry=$(echo "$windowsOnWorkspace" | jq -r '.[] | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' | slurp -o "$SLURP_ARGS")
       [[ -n $verbose ]] && echo -e "${green}Geometry${normal}: $selectedGeometry"
     ;;
@@ -369,7 +375,6 @@ get_geometry(){
 send_notification(){
   summary=$2
   local body=$3
-  # local image=$4
   case $1 in
     success)
       notify-send -i "$path" -t 3000 -a hyprscreen "$summary" "$body"
