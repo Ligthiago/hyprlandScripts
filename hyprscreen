@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+
+# This script just takes a screenshot of screen, window or custom area.
+# If window is selected and simple mode is off, it apply some fancy effects, such as shadow and rounding.
+# Mostly inspired by grimblast, but prettier.
+
+# Author: Ligthiago (https://github.com/Ligthiago)
+
+red="\033[31m"
+green="\033[32m"
+yellow="\033[33m"
+cyan="\033[36m"
+normal="\033[0;39m"
+
+mode="interactive"
+action="save"
+name=$(date -Ins)
+path=
+scale=
+fancy=false
+background=none
+radius=$(hyprctl getoption decoration:rounding -j | jq .int)
+border=1
+exclude=()
+stack=vertical
+verbose=
+notify=
+
+main(){
+  set_default_path
+
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -h | --help)
+        print_help
+      ;;
+      -d | --deps)
+        check_dependencies
+      ;;
+      -v | --verbose)
+        verbose=true
+        shift
+      ;;
+      -n | --notify)
+        notify=true
+        shift
+      ;;
+      -f | --fancy)
+        fancy=true
+        shift
+      ;;
+      -m | --mode)
+        shift
+        case "$1" in
+          "screen" | "active" | "interactive" | "all" | "panorama") mode="$1";;
+          *) set_error invalidMode;;
+        esac
+        shift
+      ;;
+      -a | --action)
+        shift
+        case "$1" in
+          "save" | "copy" | "copysave") action="$1" ;;
+          *) set_error invalidAction;;
+        esac
+        shift
+      ;;
+      -b | --background)
+        shift
+        pattern="#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"     
+        if [[ $1 =~ $pattern ]]; then
+          background="$1"
+        else
+          set_error invalidColor
+        fi
+        shift
+      ;;
+      -e | --exclude)
+        shift
+        if [ -n "$1" ]; then
+          IFS=',' read -ra exclude <<< "$1"
+          shift
+        fi
+      ;;
+      -s | --stack)
+        shift
+        case "$1" in
+          "horizontal" | "vertical") stack="$1" ;;
+          *) set_error invalidStack;;
+        esac
+        shift
+      ;;
+      -*)
+        echo "Unknown option $1. Type --help for all available options."
+        exit 1
+      ;;
+      *)
+        path="$1/${name}.png"
+        shift
+      ;;
+    esac
+  done
+
+  set_animations "unset"
+  select_mode
+  set_animations "reset"
+  [[ -n $verbose ]] && echo -e "${green}Done"
+}
+
+# Set default path according to available directories
+set_default_path(){
+  if [[ -n $XDG_SCREENSHOTS_DIR ]]; then
+    path="$XDG_SCREENSHOTS_DIR/${name}.png"
+  elif [[ -n $XDG_PICTURES_DIR ]]; then
+    path="$XDG_PICTURES_DIR/${name}.png"
+  else
+    path="$HOME/${name}.png"
+    set_warning missingXDG
+  fi
+}
+
+# Select screenshot mode
+select_mode(){
+  case $mode in
+    active)
+      [[ -n $verbose ]] && echo -e "${green}Mode${normal}: Active window".
+      get_geometry active 
+      select_format
+    ;;
+    screen)
+      [[ -n $verbose ]] && echo -e "${green}Mode${normal}: Fullscreen".
+      get_geometry screen
+      select_format
+    ;;
+    interactive)
+      [[ -n $verbose ]] && echo -e "${green}Mode${normal}: Interative selection".
+      get_geometry interactive
+      select_format
+    ;;
+    all)
+      [[ -n $verbose ]] && echo -e "${green}Mode${normal}: All outputs".
+      get_geometry all
+      take_screenshot_simple
+    ;;
+    panorama)
+      [[ -n $verbose ]] && echo -e "${green}Mode${normal}: Panorama".
+      get_geometry panorama
+      take_screenshot_panorama
+    ;;
+  esac
+}
+
+# Select format: fancy (with postprocessing) or simple
+select_format(){
+  case $fancy in 
+    true) 
+      [[ -n $verbose ]] && echo -e "${green}Format:${normal}: Fancy screenshot".
+      take_screenshot_fancy
+    ;;
+    *) 
+      [[ -n $verbose ]] && echo -e "${green}Format:${normal}: Simple screenshot".
+      take_screenshot_simple
+    ;;
+   esac
+}
+
+# Take simple screenshot without postprocessing
+take_screenshot_simple(){
+  case $action in
+    save)
+      if [ "$selectedGeometry" = "" ]; then
+        grim "$path"
+      else
+        grim -g "$selectedGeometry" "$path"
+      fi
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Saved to $path"   
+    ;;
+    copy)
+      if [ "$selectedGeometry" = "" ]; then
+        grim - | wl-copy --type image/png
+      else
+        grim -g "$selectedGeometry" - | wl-copy --type image/png
+      fi
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard"
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard"
+    ;;
+    copysave)
+      if [ "$selectedGeometry" = "" ]; then
+        grim "$path"
+        wl-copy --type image/png < "$path"
+      else
+        grim -g "$selectedGeometry" "$path"
+        wl-copy --type image/png < "$path"
+      fi
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard and saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard and saved to $path"    
+    ;;
+  esac
+}
+
+# Take screenshot with postprocessing, such as paddings and shadow
+take_screenshot_fancy(){
+  local tempDir=$(mktemp -d) 
+  local temp=$tempDir/temp.png
+  local mask=$tempDir/mask.png
+
+  read -r posXY size <<< "$selectedGeometry"
+  IFS=',' read -r posX posY <<< "$posXY"
+  IFS='x' read -r width height <<< "$size"
+  w=$(jq -n "$width"*"$scale")
+  h=$(jq -n "$height"*"$scale")
+  bs=$(jq -n "$border"*"$scale")
+  br=$(jq -n "$radius"*"$scale")
+  grim -g "${posX},${posY} ${width}x${height}" "$temp"
+
+  convert -size "$w"x"$h" xc:none -draw "roundrectangle 0,0,$(($w-$bs)),$(($h-$bs)), ${br},${br}" "$mask"
+  convert "$temp" -matte "$mask" -compose DstIn -composite "$temp"
+  rm "$mask"
+  convert "$temp" \( +clone -background black -shadow "70x20+0+20" \) +swap -background "$background" -layers merge +repage "$temp"
+
+  case $action in
+    save)
+      mv "$temp" "$path"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Saved to $path"
+    ;;
+    copy)
+      wl-copy --type image/png < "$temp"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard"
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard"
+      rm "$temp"
+    ;;
+    copysave)
+      mv "$temp" "$path"
+      wl-copy --type image/png < "$path"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard and saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard and saved to $path"
+    ;;
+  esac
+}
+
+# Take screenshot of all workspaces, except excluded and compose in single picture 
+take_screenshot_panorama(){
+  local temp=$(mktemp -d)
+  local result=$temp/result.png
+  local nonExcluded=()
+  local workspaces=($(hyprctl workspaces -j | jq -r '.[].id'))
+  output=
+
+  for id in "${workspaces[@]}"; do
+    if [[ ! " ${exclude[*]} " =~ " $id " ]]; then
+      hyprctl dispatch workspace "$id"
+      output="$(hyprctl workspaces -j | jq -r --argjson id "$id" '.[] | select(.id == $id) | .monitor')"
+      sleep 0.5
+      grim -o "$output" "$temp/$id.png"
+      nonExcluded+=("$temp/$id.png")
+      sleep 0.5
+    fi 
+  done
+
+  hyprctl dispatch workspace "$activeWorkspace"
+
+  case $stack in
+    horizontal)
+      convert "${nonExcluded[@]}" +append "$result"
+    ;;
+    vertical)
+      convert "${nonExcluded[@]}" -append "$result"
+    ;;
+  esac
+  
+  case $action in
+    save)
+      mv "$result" "$path"
+      rm "${nonExcluded[@]}"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Saved to $path"
+    ;;
+    copy)
+      wl-copy --type image/png < "$result"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard"
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard"
+      rm "$result" "${nonExcluded[@]}"
+    ;;
+    copysave)
+      mv "$result" "$path"
+      rm "${nonExcluded[@]}"
+      wl-copy --type image/png < "$path"
+      [[ -n $verbose ]] && echo -e "${green}Action${normal}: Copied to clipboard and saved to $path."
+      [[ -n $notify ]] && send_notification success "Screenshot" "Copied to clipboard and saved to $path"
+    ;;
+  esac
+}
+
+# Check script dependencies and print them
+check_dependencies(){
+  local dependencies=("grim" "slurp" "jq" "convert" "wl-copy" "hyprpicker" "notify-send")
+  echo -e "Checking dependencies..."
+  for element in "${dependencies[@]}"; do
+    if command -v "$element" >/dev/null 2>&1; then
+      result="${green}installed"
+    else
+      result="${red}not found${normal}."
+    fi
+    echo -e "${normal}$element: $result"
+  done
+  exit 0
+}
+
+# Set Hyprland animations
+set_animations(){
+  case $1 in
+    unset)
+      local fade="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fade") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
+      local fadeout="$(hyprctl -j animations | jq -jr '.[0][] | select(.name == "fadeOut") | .name, ",", (if .enabled == true then "1" else "0" end), ",", (.speed|floor), ",", .bezier')"
+      hyprctl keyword animation 'fade,0,1,default' >/dev/null
+      hyprctl keyword animation 'fadeOut,0,1,default' >/dev/null
+    ;;
+    reset)
+      hyprctl keyword animation "$fade" >/dev/null
+      hyprctl keyword animation "$fadeout" >/dev/null
+    ;;
+    *)
+      exit 1
+    ;;
+  esac
+}
+
+# Get geometry of screenshot
+get_geometry(){
+  hyprpicker -r -z & sleep 0.2
+  pid=$!
+  case $1 in
+    active)
+      selectedGeometry=$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+      [[ -n $verbose ]] && echo -e "${green}Geometry${normal}: $selectedGeometry"
+    ;;
+    screen)
+      selectedGeometry=$(slurp -o)
+    ;;
+    interactive)
+      local activeWorkspace="$(hyprctl monitors -j | jq -r 'map(.activeWorkspace.id)')"
+      local windowsOnWorkspace="$(hyprctl clients -j | jq -r --argjson workspace "$activeWorkspace" 'map(select([.workspace.id] | inside($workspace)))')"
+      # local windowsGeometry=$(echo "$windowsOnWorkspace" | jq -r '.[] | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+      selectedGeometry=$(echo "$windowsOnWorkspace" | jq -r '.[] | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' | slurp -o "$SLURP_ARGS")
+      [[ -n $verbose ]] && echo -e "${green}Geometry${normal}: $selectedGeometry"
+    ;;
+    all)
+      selectedGeometry=
+    ;;
+    panorama)
+      selectedGeometry=
+      activeWorkspace="$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .activeWorkspace.id')"
+    ;;
+    *)
+      exit 1
+    ;;
+  esac
+  if [ -z "$selectedGeometry" ] && [ "$mode" != "all" ] && [ "$mode" != "panorama" ]; then
+    kill $pid
+    exit 1
+  fi
+  scale=$(hyprctl monitors -j | jq '.[] | select(.focused == true) | .scale')
+  kill $pid
+}
+
+# Send notification using libnotify
+send_notification(){
+  summary=$2
+  local body=$3
+  # local image=$4
+  case $1 in
+    success)
+      notify-send -i "$path" -t 3000 -a hyprscreen "$summary" "$body"
+    ;;
+    *)
+      exit 1
+    ;;
+  esac
+}
+
+# Set warning and continue
+set_warning(){
+  echo -en "${yellow}Warning${normal}: "
+  case $1 in
+    missingXDG) echo "Missing XDG_PICTURES_DIR or XDG_SCREENSHOTS_DIR, default path will be home folder";;
+    *) echo "Unknown";;
+  esac
+}
+
+# Set error and exit
+set_error(){
+  echo -en "${red}Error${normal}: "
+  case $1 in
+    invalidMode) echo "Invalid mode. Possible values: active, interactive, path, all, panorama";;
+    invalidAction) echo "Invalid action. Possible values: save, copy, copysave";;
+    missingDependencies) echo "Missing dependencies. Required: grim, slurp, jq, imagemagick, wl-copy, hyprpicker and libnotify" ;;
+    invalidColor) echo "Invalid color. Must be '#RRGGBB' or '#RRGGBBAA'";;
+    invalidStack) echo "Invalid stack. Must be 'horizontal' or 'vertical'";;
+    *) echo "Unknown";;
+  esac
+  exit 1
+}
+
+# Print help message and exit
+print_help(){
+  echo -e "Screenshot tool for Hyprland"
+  echo -e ""
+  echo -e "${green}Usage${normal}:"
+  echo -e "  > hyprscreen {flags} (path)"
+  echo -e ""
+  echo -e "${green}Flags${normal}:"
+  echo -e "  ${cyan}-m${normal}, ${cyan}--mode${normal} - Screenshot mode. Possible values: interactive, active, screen, panorama, all. Default: interactive".
+  echo -e "  ${cyan}-a${normal}, ${cyan}--action${normal} - Action after taking screenshot. Possible values: save, copy, copysave. Default: save."
+  echo -e "  ${cyan}-f${normal}, ${cyan}--fancy${normal} - Fancy mode, screenshot with additional effects."
+  echo -e "  ${cyan}-b${normal}, ${cyan}--background${normal} - Background color for fancy mode."
+  echo -e "  ${cyan}-e${normal}, ${cyan}--exclude${normal} - Exclude workspaces in panorama mode."
+  echo -e "  ${cyan}-s${normal}, ${cyan}--stack${normal} - Direction of panorama mode. Possible values: horizontal, vertical. Default: vertical."
+  echo -e "  ${cyan}-v${normal}, ${cyan}--verbose${normal} - Print additional info."
+  echo -e "  ${cyan}-n${normal}, ${cyan}--notify${normal} - Send notification."
+  echo -e "  ${cyan}-d${normal}, ${cyan}--deps${normal} - Check dependencies."
+  echo -e "  ${cyan}-h${normal}, ${cyan}--help${normal} - Show this message."
+  echo -e ""
+  echo -e "${green}Parameters${normal}:"
+  echo -e "  ${cyan}path ${normal}<${cyan}path${normal}>: Where to save screenshot. Default: XDG_SCREENSHOTS_DIR if exist, either XDG_PICTURES_DIR if exist, else HOME"
+  echo -e ""
+  exit 0
+}
+
+main "$@"
+exit 0
