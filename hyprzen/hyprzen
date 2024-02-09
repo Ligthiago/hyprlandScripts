@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+
+# Zen wallpaper changer for Hyprland. 
+# It applies normal wallpaper only if there are only floating windows or no windows on the active workspace. 
+# In tiled mode, it applies zen wallpaper. 
+# It is useful if you want to set some fancy wallpaper, but it will distract you in tiling mode.
+
+# Author: Ligthiago (https://github.com/Ligthiago)
+
+# Terminal colors
+# red="\033[31m"
+green="\033[32m"
+# yellow="\033[33m"
+cyan="\033[36m"
+normal="\033[0;39m"
+
+wallpaperNormal=
+wallpaperZen=
+current=
+step=10
+fps=60
+
+main(){
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -h | --help)
+        print_help
+      ;;
+      -s | -speed)
+        shift
+        step=$1
+        shift
+      ;;
+      -f | -fps)
+        shift
+        fps=$1
+        shift
+      ;;
+      -*)
+        echo "Unknown option $1. Type --help for all available options."
+        exit 1
+      ;;
+      *)
+        wallpaperNormal=$1
+        wallpaperZen=$2
+        shift
+        shift
+      ;;
+     esac
+  done
+
+  handle_wallpaper
+  socat -U - UNIX-CONNECT:/tmp/hypr/"$HYPRLAND_INSTANCE_SIGNATURE"/.socket2.sock | \
+   while read -r line; do listen "$line"; done
+}
+
+listen(){
+  case $1 in
+  workspace* | openwindow* | closewindow* | changefloatingmode*)
+    handle_wallpaper
+  ;;
+  esac
+}
+
+handle_wallpaper(){
+  local activeWorkspace
+  local windowsOnWorkspace
+  activeWorkspace="$(hyprctl monitors -j | jq -r 'map(.activeWorkspace.id)')"
+  windowsOnWorkspace="$(hyprctl clients -j | jq -r --argjson workspace "$activeWorkspace" 'map(select([.workspace.id] | inside($workspace)))')"
+
+if [ "$(echo "$windowsOnWorkspace" | jq 'map(select(.floating == false and .pid != -1)) | length')" -eq 0 ] && \
+   [ "$(echo "$windowsOnWorkspace" | jq 'map(select(.floating == false and .pid == -1)) | length')" -eq 1 ] || \
+   [ "$(echo "$windowsOnWorkspace" | jq 'all(.floating == true) or (. | length == 0)')" == "true" ]; then
+
+     if [[ $current == "zen" ]] || [ -z $current ]; then
+      swww img --transition-type "simple" --transition-step "$step" --transition-fps "$fps" "$wallpaperNormal"
+      current="normal"
+    fi
+  else
+    if [[ $current == "normal" ]] || [ -z $current ]; then
+      swww img  --transition-type "simple" --transition-step "$step" --transition-fps "$fps" "$wallpaperZen"
+      current="zen"
+    fi
+  fi
+}
+
+print_help(){
+  echo -e "Hyprzen applies normal wallpaper only if there are only floating windows or no windows on the active workspace. In tiled mode, it applies zen wallpaper. It is useful if you want to set some fancy wallpaper, but it will distract you in tiling mode."
+  echo -e ""
+  echo -e "${green}Usage${normal}:"
+  echo -e "  > hyprzen {flags} (normal wallpaper) (zen wallpaper)"
+  echo -e ""
+  echo -e "${green}Flags${normal}:"
+  echo -e "  ${cyan}-s${normal}, ${cyan}--step${normal} - Transition speed. Default: 10"
+  echo -e "  ${cyan}-f${normal}, ${cyan}--fps${normal} - Transition fps. Default: 60"
+  echo -e "  ${cyan}-h${normal}, ${cyan}--help${normal} - Show this message"
+  echo -e ""
+  echo -e "${green}Parameters${normal}:"
+  echo -e "  ${cyan}normal wallpaper ${normal}<${cyan}path${normal}>: Path to normal wallpaper"
+  echo -e "  ${cyan}zen wallpaper ${normal}<${cyan}path${normal}>: Path to zen wallpaper"
+  echo -e ""
+  exit 0
+}
+
+main "$@"
+
