@@ -10,12 +10,14 @@ install-hyprscreen:
 install-hyprzen:
 	@install -v -D -m 0755 hyprzen/hyprzen --target-directory "$(BINDIR)"
 
+install-hyprexclusive:
+	@install -v -D -m 0755 hyprexclusive/hyprexclusive --target-directory "$(BINDIR)"
+
 uninstall-hyprscreen:
 	rm "$(BINDIR)/hyprscreen"
 	
 uninstall-hyprzen:
 	rm "$(BINDIR)/hyprzen"
 
-install-all: install-hyprscreen install-hyprzen
-
-uninstall-all: uninstall-hyprscreen uninstall-hyprzen
+uninstall-hyprexclusive:
+	rm "$(BINDIR)/hyprexclusive"
