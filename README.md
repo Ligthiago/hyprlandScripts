@@ -6,17 +6,18 @@
 This repository contains various small utilities for [Hyprland compositor](https://github.com/hyprwm/Hyprland):
   - [Hyprscreen](#hyprscreen): screenshot tool with fancy post-processing.
   - [Hyprzen](#hyprzen): switch between two wallpapers, one for empty desktop or floating windows only, another for tiling mode.
+  - [Hyprexclusive](#hyprexclusive): open application only if no similar application already opened. If similar app already exist - focus to it.
 
 <div align="center">
     <div id='hyprscreen'></div>
-    <h1> Hyprscreen </h1> 
+    <h2> Hyprscreen </h2> 
 </div>
 
 **hyprscreen** - is a bash script for the Hyprland compositor that allows you to easily take screenshots in various modes and formats. It is also able to apply fancy post-processing such as padding, rounding and shadows.
 
 ![](./assets/fancy.png)
 
-## Features
+### Features
 
 #### Modes:
 
@@ -39,7 +40,7 @@ This repository contains various small utilities for [Hyprland compositor](https
 
 Background color for image can also be set with `-b` option
 
-## Install
+### Install
 
 ```sh
 git clone https://github.com/Ligthiago/hyprlandScripts
@@ -50,7 +51,7 @@ or just copy the `hyprscreen/hyprscreen` file to `~/.bin`.
 
 For NixOS [this package](https://github.com/Ligthiago/novaFlake/blob/main/packages/hyprscreen/default.nix) can be used.
 
-## Usage
+### Usage
 
 ```
 Screenshot tool for Hyprland
@@ -76,14 +77,14 @@ Parameters:
 
 <div align="center">
     <div id='hyprzen'></div>
-    <h1> Hyprzen </h1> 
+    <h2> Hyprzen </h2> 
 </div>
 
 **hyprzen** - is a bash script that allows to switch between two wallpapers. Normal wallpaper appears when the workspace has no windows or only floating windows. Zen wallpaper, probably less distracting, appears when at least one window on the workspace is in tiling mode.
 
 https://github.com/Ligthiago/hyprscreen/assets/142721811/7bd430df-1c9a-4592-af44-2a531119d3a2
 
-## Install
+### Install
 
 ```sh
 git clone https://github.com/Ligthiago/hyprlandScripts
@@ -94,7 +95,7 @@ or just copy the `hyprzen/hyprzen` file to `~/.bin`.
 
 For NixOS [this package](https://github.com/Ligthiago/novaFlake/blob/main/packages/hyprzen/default.nix) can be used.
 
-## Usage 
+### Usage 
 
 ```
 Usage:
@@ -108,4 +109,36 @@ Flags:
 Parameters:
   normal wallpaper <path>: Path to normal wallpaper
   zen wallpaper <path>: Path to zen wallpaper
+```
+
+<div align="center">
+    <div id='hyprexclusive'></div>
+    <h2> Hyprexclusive </h2> 
+</div>
+
+**hyprexclusive** - is a bash script that allows you to open an application only if there are no other windows of the same class, in which case just move the focus to it.
+
+### Install
+
+```sh
+git clone https://github.com/Ligthiago/hyprlandScripts
+cd hyprlandScripts
+make install-hyprexclusive
+```
+or just copy the `hyprexclusive/hyprexclusive` file to `~/.bin`.
+
+<!-- For NixOS [this package](https://github.com/Ligthiago/novaFlake/blob/main/packages/hyprzen/default.nix) can be used. -->
+
+### Usage
+
+```
+Usage:
+  > hyprexclusive {flags} (class) (executable)
+
+Flags:
+  -h, --help - Show this message.
+
+Parameters:
+  class <string>: Application class to check
+  executable <string>: Application to launch
 ```

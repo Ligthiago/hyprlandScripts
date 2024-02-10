@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+# This script open application only if no such application already opened in all workspaces.
+# If similar window already exist, it move to workspace with it and change focus to it.
+# Application class and executable is required
+
+# Author: Ligthiago (https://github.com/Ligthiago)
+
+red="\033[31m"
+green="\033[32m"
+cyan="\033[36m"
+normal="\033[0;39m"
+
+class=
+executable=
+
+main(){  
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -h | --help)
+        print_help
+      ;;
+      -* )
+        set_error unknownOption "$1"
+      ;;
+      *)
+        class=$1
+        executable=$2
+        shift
+        shift
+      ;;
+    esac
+  done
+  
+  check
+}
+
+check(){
+  if [ "$class" = "" ]; then
+    set_error missingClass
+  elif [ "$executable" = "" ]; then
+    set_error missingExec
+  fi
+  
+  windows=$(hyprctl clients -j | jaq .[].class)
+
+  if [[ "$windows" == *$class* ]];then
+    hyprctl dispatch focuswindow "^($class)$"
+  else
+    hyprctl dispatch exec "$executable"
+  fi
+}
+
+set_error(){
+  echo -en "${red}Error${normal}: "
+  case $1 in
+    missingClass) echo "Missing class.";;
+    missingExec) echo "Missing executable.";;
+    unknownOption) echo "Unknown option $2. Type --help for all available options.";;
+    *) echo "Unknown";;
+  esac
+  exit 1
+}
+
+
+print_help(){
+  echo -e "Open application only if no similar application already opened. If similar app already exist - focus to it."
+  echo -e ""
+  echo -e "${green}Usage${normal}:"
+  echo -e "  > hyprexclusive {flags} (class) (executable)"
+  echo -e ""
+  echo -e "${green}Flags${normal}:"
+  echo -e "  ${cyan}-h${normal}, ${cyan}--help${normal} - Show this message".
+  echo -e ""
+  echo -e "${green}Parameters${normal}:"
+  echo -e "  ${cyan}class ${normal}<${cyan}string${normal}>: Application class to check"
+  echo -e "  ${cyan}executable ${normal}<${cyan}string${normal}>: Application to launch"
+  echo -e ""
+  exit 0
+
+}
+
+main "$@"
+exit 0
