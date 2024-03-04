@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+# This script allow to swap all windows on current workspace with target workspace.
+# This will allow basically rearrange workspaces on same monitor without pain it some places.
+
+# Author: Ligthiago (https://github.com/Ligthiago)
+# Thanks, tchofy (https://github.com/tchofy)
+
+red="\033[31m"
+green="\033[32m"
+cyan="\033[36m"
+normal="\033[0;39m"
+
+currentWorkspace=$(hyprctl activeworkspace -j | jq -r ".id")
+targetWorkspace=
+silent=
+
+main() {
+	while [ $# -gt 0 ]; do
+		case $1 in
+		-h | --help)
+			print_help
+			;;
+		-s | --silent)
+			silent=true
+			shift
+			;;
+		-*)
+			set_error unknownOption "$1"
+			;;
+		*)
+			if [ -n "$1" ] && [ "$1" -eq "$1" ] 2>/dev/null; then
+				targetWorkspace=$1
+        shift
+			else
+				set_error invalidWorkspace
+			fi
+			shift
+			;;
+		esac
+	done
+
+	swap_workspaces
+}
+
+swap_workspaces() {
+	local currentWindows
+	local targetWindows
+
+	currentWindows=$(hyprctl clients -j | jq -r --arg id "$currentWorkspace" '.[] | select(.workspace.id == ($id | tonumber)) | .address')
+	targetWindows=$(hyprctl clients -j | jq -r --arg id "$targetWorkspace" '.[] | select(.workspace.id == ($id | tonumber)) | .address')
+
+	echo "$currentWindows" | xargs -I {} hyprctl dispatch movetoworkspacesilent "$targetWorkspace",address:{}
+	echo "$targetWindows" | xargs -I {} hyprctl dispatch movetoworkspacesilent "$currentWorkspace",address:{}
+
+	[[ -z $silent ]] && hyprctl dispatch workspace "$targetWorkspace"
+}
+
+set_error() {
+	echo -en "${red}Error${normal}: "
+	case $1 in
+	invalidWorkspace) echo "Invalid workspace id. Must be integer" ;;
+	*) echo "Unknown" ;;
+	esac
+	exit 1
+}
+
+print_help() {
+	echo -e "Workspace rearrangement tool for Hyprland"
+	echo -e ""
+	echo -e "${green}Usage${normal}:"
+	echo -e "  > hyprarrange {flags} (target workspace)"
+	echo -e ""
+	echo -e "${green}Flags${normal}:"
+	echo -e "  ${cyan}-s${normal}, ${cyan}--silent${normal} - Stay on current workspace".
+	echo -e "  ${cyan}-h${normal}, ${cyan}--help${normal} - Show this message".
+	echo -e ""
+	echo -e "${green}Parameters${normal}:"
+	echo -e "  ${cyan}workspace id ${normal}<${cyan}string${normal}>: Target workspace to swap windows with it"
+	echo -e ""
+	exit 0
+
+}
+
+main "$@"
+exit 0

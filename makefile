@@ -13,6 +13,9 @@ install-hyprzen:
 install-hyprexclusive:
 	@install -v -D -m 0755 hyprexclusive/hyprexclusive --target-directory "$(BINDIR)"
 
+install-hyprarrange:
+	@install -v -D -m 0755 hyprarrange/hyprarrange --target-directory "$(BINDIR)"
+
 uninstall-hyprscreen:
 	rm "$(BINDIR)/hyprscreen"
 	
@@ -21,3 +24,6 @@ uninstall-hyprzen:
 
 uninstall-hyprexclusive:
 	rm "$(BINDIR)/hyprexclusive"
+
+uninstall-hyprarrange:
+	rm "$(BINDIR)/hyprarrange"
